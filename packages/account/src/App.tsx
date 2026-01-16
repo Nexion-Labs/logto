@@ -137,7 +137,8 @@ const Main = () => {
 
 const Layout = () => {
   const { experienceSettings, theme } = useContext(PageContext);
-  const hideLogtoBranding = experienceSettings?.hideLogtoBranding === true;
+  // Const hideLogtoBranding = experienceSettings?.hideLogtoBranding === true;
+  const hideLogtoBranding = experienceSettings?.hideLogtoBranding === false;
 
   return (
     <div className={styles.app}>
@@ -150,7 +151,8 @@ const Layout = () => {
                 <Main />
               </LogtoErrorBoundary>
             </ErrorBoundary>
-            {!hideLogtoBranding && <LogtoSignature className={styles.signature} theme={theme} />}
+            {/* before is !hideLogtoBranding */}
+            {hideLogtoBranding && <LogtoSignature className={styles.signature} theme={theme} />}
           </main>
         </div>
       </div>

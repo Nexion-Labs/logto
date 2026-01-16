@@ -21,7 +21,8 @@ const AppLayout = () => {
         {!isMobile && <CustomContent className={layoutClassNames.customContent} />}
         <main className={classNames(styles.main, layoutClassNames.mainContent)}>
           <Outlet />
-          {!hideLogtoBranding && (
+          {/* before is !hideLogtoBranding */}
+          {hideLogtoBranding && (
             <LogtoSignature
               className={classNames(styles.signature, layoutClassNames.signature)}
               theme={theme}
