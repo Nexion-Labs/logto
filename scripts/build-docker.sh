@@ -26,7 +26,7 @@ fi
 
 # Build the image
 $BUILD_CMD \
-  --build-arg dev_features_enabled=true \
+  --build-arg dev_features_enabled="${DEV_FEATURES_ENABLED}" \
   --build-arg applicationinsights_connection_string="$APPLICATIONINSIGHTS_CONNECTION_STRING" \
   --build-arg additional_connector_args="$ADDITIONAL_CONNECTOR_ARGS" \
   -t "$IMAGE_NAME:$TAG" \
