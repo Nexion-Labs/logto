@@ -118,6 +118,7 @@ export default class GlobalValues {
   public readonly developmentUserId = getEnv('DEVELOPMENT_USER_ID');
   public readonly trustProxyHeader = yes(getEnv('TRUST_PROXY_HEADER'));
   public readonly ignoreConnectorVersionCheck = yes(getEnv('IGNORE_CONNECTOR_VERSION_CHECK'));
+  public readonly injectedHeaderMappingJson = getEnv('INJECTED_HEADER_MAPPING_JSON');
 
   /** Maximum number of tenants to keep in the tenant pool. */
   public readonly tenantPoolSize = Number(getEnv('TENANT_POOL_SIZE', '100'));
@@ -168,6 +169,18 @@ export default class GlobalValues {
 
   public get azureFunctionAppKey() {
     return getEnv('AZURE_FUNCTION_APP_KEY');
+  }
+
+  /**
+   * For cloud use only.
+   * Define regional Untrusted Azure function app endpoint and key to enable the Logto Azure Functions integration for untrusted operations.
+   */
+  public get azureFunctionUntrustedAppEndpoint() {
+    return getEnv('AZURE_FUNCTION_UNTRUSTED_APP_ENDPOINT');
+  }
+
+  public get azureFunctionUntrustedAppKey() {
+    return getEnv('AZURE_FUNCTION_UNTRUSTED_APP_KEY');
   }
 
   /**

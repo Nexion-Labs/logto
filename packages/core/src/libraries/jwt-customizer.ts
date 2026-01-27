@@ -10,10 +10,13 @@ import {
   type LogtoJwtTokenKey,
   type CustomJwtApiContext,
   type CustomJwtScriptPayload,
+  jsonObjectGuard,
 } from '@logto/schemas';
 import { type ConsoleLog } from '@logto/shared';
-import { assert, deduplicate, pick, pickState } from '@silverhand/essentials';
+import { assert, deduplicate, type Optional, pick, pickState } from '@silverhand/essentials';
 import deepmerge from 'deepmerge';
+import { got, HTTPError } from 'got';
+import { type UnknownObject } from 'oidc-provider';
 import { ZodError, z } from 'zod';
 
 import { EnvSet } from '#src/env-set/index.js';
@@ -28,6 +31,7 @@ import {
   runScriptFunctionInLocalVm,
   buildLocalVmErrorBody,
   type CustomJwtDeployRequestBody,
+  parseAzureFunctionsResponseError,
 } from '#src/utils/custom-jwt/index.js';
 
 import { type CloudConnectionLibrary } from './cloud-connection.js';
@@ -95,6 +99,18 @@ export class JwtCustomizerLibrary {
     private readonly userLibrary: UserLibrary,
     private readonly scopeLibrary: ScopeLibrary
   ) {}
+
+  get isRegionalAzureFunctionAppConfigured(): boolean {
+    const {
+      isDevFeaturesEnabled,
+      azureFunctionUntrustedAppKey,
+      azureFunctionUntrustedAppEndpoint,
+    } = EnvSet.values;
+
+    return Boolean(
+      isDevFeaturesEnabled && azureFunctionUntrustedAppKey && azureFunctionUntrustedAppEndpoint
+    );
+  }
 
   /**
    * We does not include org roles' scopes for the following reason:
@@ -171,6 +187,13 @@ export class JwtCustomizerLibrary {
       return;
     }
 
+    if (this.isRegionalAzureFunctionAppConfigured) {
+      consoleLog.info(
+        'Skipping Cloudflare Workers deployment since regional Azure Function App is configured.'
+      );
+      return;
+    }
+
     // eslint-disable-next-line @typescript-eslint/ban-ts-comment, @typescript-eslint/prefer-ts-expect-error
     // @ts-ignore TS2589: caused by router type growth from @logto/cloud
     const [client, jwtCustomizers] = await Promise.all([
@@ -209,6 +232,13 @@ export class JwtCustomizerLibrary {
       return;
     }
 
+    if (this.isRegionalAzureFunctionAppConfigured) {
+      consoleLog.info(
+        'Skipping Cloudflare Workers undeployment since regional Azure Function App is configured.'
+      );
+      return;
+    }
+
     const [client, jwtCustomizers] = await Promise.all([
       this.cloudConnection.getClient(),
       this.logtoConfigs.getJwtCustomizers(consoleLog),
@@ -233,6 +263,51 @@ export class JwtCustomizerLibrary {
 
     await client.put(`/api/services/custom-jwt/worker`, {
       body: deepmerge(customizerScriptsFromDatabase, newCustomizerScripts),
+    });
+  }
+
+  /**
+   * @remarks
+   * For Logto cloud use only. Run the custom JWT claims script remotely in an isolated environment.
+   * For OSS version, use @see JwtCustomizerLibrary.runScriptInLocalVm instead.
+   *
+   * @param payload - The custom JWT fetcher payload.
+   * @param isTest - Whether to run the script in test mode.
+   */
+  async runScriptRemotely(
+    payload: CustomJwtFetcher,
+    isTest?: boolean
+  ): Promise<Optional<UnknownObject>> {
+    const { azureFunctionUntrustedAppKey, azureFunctionUntrustedAppEndpoint } = EnvSet.values;
+
+    if (this.isRegionalAzureFunctionAppConfigured) {
+      try {
+        const result = await got
+          .post(new URL('/api/custom-jwt', azureFunctionUntrustedAppEndpoint), {
+            json: payload,
+            headers: {
+              'x-functions-key': azureFunctionUntrustedAppKey,
+            },
+          })
+          .json<unknown>();
+
+        const parsedResult = jsonObjectGuard.parse(result);
+        return parsedResult;
+      } catch (error: unknown) {
+        // Convert got HTTPError to WithTyped client ResponseError for unified error handling.
+        if (error instanceof HTTPError) {
+          throw parseAzureFunctionsResponseError(error);
+        }
+
+        throw error;
+      }
+    }
+
+    // Fallback to use cloud connection to call the custom JWT API.
+    const client = await this.cloudConnection.getClient();
+    return client.post(`/api/services/custom-jwt`, {
+      body: payload,
+      search: isTest ? { isTest: 'true' } : {},
     });
   }
 }

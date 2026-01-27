@@ -4,10 +4,12 @@ import { InteractionEvent, MfaFactor, VerificationType, type User } from '@logto
 import { maskEmail, maskPhone } from '@logto/shared';
 import { conditional, trySafe } from '@silverhand/essentials';
 
+import { EnvSet } from '#src/env-set/index.js';
 import RequestError from '#src/errors/RequestError/index.js';
 import { type LogEntry } from '#src/middleware/koa-audit-log.js';
 import type TenantContext from '#src/tenants/TenantContext.js';
 import assertThat from '#src/utils/assert-that.js';
+import { buildAppInsightsTelemetry } from '#src/utils/request.js';
 
 import {
   interactionStorageGuard,
@@ -431,7 +433,11 @@ export default class ExperienceInteraction {
   // eslint-disable-next-line complexity
   public async submit() {
     const {
-      queries: { users: userQueries, userSsoIdentities: userSsoIdentityQueries },
+      queries: {
+        users: userQueries,
+        userSsoIdentities: userSsoIdentityQueries,
+        signInExperiences: signInExperienceQueries,
+      },
       libraries: {
         socials: { upsertSocialTokenSetSecret },
         ssoConnectors: { upsertEnterpriseSsoTokenSetSecret },
@@ -478,6 +484,20 @@ export default class ExperienceInteraction {
       hasVerifiedSocialIdentity: this.hasVerifiedSocialIdentity,
       hasVerifiedSsoIdentity: this.hasVerifiedSsoIdentity,
     });
+
+    if (EnvSet.values.isDevFeaturesEnabled) {
+      // Check if passkey sign-in is enabled in the sign-in experience, if yes, check if user has `WebAuthn`
+      // type of MFA verification record in `users.mfaVerifications`.
+      const signInExperience = await signInExperienceQueries.findDefaultSignInExperience();
+      if (
+        signInExperience.passkeySignIn.enabled &&
+        this.#interactionEvent === InteractionEvent.Register
+      ) {
+        const hasWebAuthn = this.mfa.data.webAuthn?.length;
+
+        assertThat(hasWebAuthn, new RequestError({ code: 'user.passkey_preferred', status: 422 }));
+      }
+    }
 
     // Revalidate the new MFA data if any
     await this.mfa.checkAvailability();
@@ -547,14 +567,18 @@ export default class ExperienceInteraction {
       await trySafe(
         async () => upsertSocialTokenSetSecret(user.id, socialConnectorTokenSetSecret),
         (error) => {
-          void appInsights.trackException(error);
+          void appInsights.trackException(error, buildAppInsightsTelemetry(this.ctx));
         }
       );
     }
 
     // Sync enterprise sso token set secret
     if (enterpriseSsoConnectorTokenSetSecret) {
-      await upsertEnterpriseSsoTokenSetSecret(user.id, enterpriseSsoConnectorTokenSetSecret);
+      await upsertEnterpriseSsoTokenSetSecret(
+        user.id,
+        enterpriseSsoConnectorTokenSetSecret,
+        this.ctx
+      );
     }
 
     // Provision organizations for one-time token that carries organization IDs in the context.
